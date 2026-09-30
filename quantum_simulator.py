@@ -141,7 +141,7 @@ class QuantumCompiler:
                 # Examine every gate already inside the layer.
                 for existing_gate in layer:
                     # Add that gate's quvits to the used-qubit set.
-                     used_qubits.updat(QuantumCompiler.get_qubits(existing_gate))
+                     used_qubits.update(self.get_qubits(existing_gate))
 
                 # If this gate uses no qubit already used by the layer.
                 # it can execute in parallel with the layer's gates.
@@ -165,7 +165,7 @@ class QuantumCompiler:
         # Return the complete scheduled circuit.
         return layers
 
-    def get_qubits(gate):
+    def get_qubits(self, gate):
         # The first item tells us what type of gate this is.
         gate_name = gate[0]
 
@@ -182,8 +182,61 @@ class QuantumCompiler:
         # Return on empty set if we don't know this gate yet.
         return set()
 
+    def schedule_circuit(self,gates):
+        # Store when each qubit becomes available.
+        # We assume our circuit has three qubits numbered 0, 1, and 2.
+        qubit_available = {
+            0: 0,
+            1: 0,
+            2: 0
+        }
 
-        
+        # Store the duration of each gate.
+        # These are simplified hypothetical hardware timings.
+        gate_duration = {
+            "H": 1,
+            "X": 1,
+            "Z": 1,
+            "CNOT": 3
+        } 
+
+        # Store the final Schedule.
+        # Each item will contain the gate and its start/finish times.
+        schedule = []
+
+        # Process gates in their original circuit order.
+        for gate in gates:
+            #Find which qubits this gate needs.
+            required_qubits = self.get_qubits(gate)
+
+            # Find when each required qubit becomes available.
+            required_times = {
+                qubit_available[qubit]
+                for qubit in required_qubits
+            }
+
+            # The gate must wait until all required qubits are availavle.
+            # Therefore, we choose the latest availability time.
+            start_time = max(required_times)
+
+            # Look up how long this gate takes.
+            duration = gate_duration[gate[0]]
+
+            # Calculate when the gate finishes.
+            finish_time = start_time + duration
+
+            # Save the gate and its timing information
+            schedule.append(
+                (gate, start_time, finish_time)
+            )
+
+            # Every qubit used by this gate is now busy until finish_time.
+            for qubit in required_qubits:
+                qubit_available[qubit] = finish_time
+
+        # Return the completed schedule.
+        return schedule
+
     def update_mapping_after_swap(self, physical_a, physical_b):
         """Update the logical-to-physical mapping after swapping two qubits."""
         inverse_mapping = {
@@ -579,16 +632,21 @@ class QuantumCircuit:
         print(self.state)
         print(self.operations)
 
-# Store the qubits used by the first gate.
-gate_a_qubits = {0}
+# Create a small example circuit.
+# The tuples describe the gate name and the qubits it uses.
+circuit = [
+    ("H", 0),
+    ("CNOT", 0, 1),
+    ("X", 2),
+    ("H", 1)
+]
 
-# Store the qubits used by the second gate.
-gate_b_qubits = {1}
+# Create a compiler for the three-qubit example circuit and send it to the
+# scheduler.  ``schedule_circuit`` is an instance method, so it needs a
+# compiler object rather than the ``QuantumCompiler`` class itself.
+compiler = QuantumCompiler(QuantumHardware([]), num_qubits=3)
+schedule = compiler.schedule_circuit(circuit)
 
-# Check whether the two sets share any qubit.
-if gate_a_qubits.isdisjoint(gate_b_qubits):
-    # No shared qubits means the gates can run in parallel.
-    print("Can run together")
-else:
-    # A shared qubit means the gates conflict.
-    print("Cannot run together")
+# Print each gate's scheduled start and finish time.
+for gate, start, finish in schedule:
+    print(gate, start, finish)
